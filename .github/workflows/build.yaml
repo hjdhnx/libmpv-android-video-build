@@ -58,7 +58,16 @@ jobs:
           grep -n "libxml2" scripts/ffmpeg.sh
           for arch in arm64 x86_64; do
             echo "===== 架构: $arch ====="
-            ./build.sh --arch $arch mpv
+            if ! ./build.sh --arch $arch mpv; then
+              echo "===== 构建失败，dump 诊断 ====="
+              echo "--- libxml-2.0.pc 内容 ---"
+              cat "prefix/$([ $arch = arm64 ] && echo arm64-v8a || echo x86_64)/lib/pkgconfig/libxml-2.0.pc" 2>/dev/null || true
+              echo "--- pkg-config 完整输出 ---"
+              PKG_CONFIG_SYSROOT_DIR="$PWD/prefix/$([ $arch = arm64 ] && echo arm64-v8a || echo x86_64)"               PKG_CONFIG_LIBDIR="$PWD/prefix/$([ $arch = arm64 ] && echo arm64-v8a || echo x86_64)/lib/pkgconfig"                 sh -c 'pkg-config --cflags libxml-2.0; pkg-config --libs libxml-2.0; echo "--- exists:"; pkg-config --exists libxml-2.0 && echo OK || echo FAIL' || true
+              echo "--- ffmpeg config.log 中的 libxml 段 ---"
+              grep -B3 -A25 "libxml" deps/ffmpeg/ffbuild/config.log 2>/dev/null | tail -60 || true
+              exit 1
+            fi
           done
           # 收集产物（prefix/<abi>/lib/libmpv.so）
           mkdir -p ../output-mpv
