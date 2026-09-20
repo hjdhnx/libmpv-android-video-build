@@ -10,6 +10,10 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 . "$here/include/depinfo.sh"
 
+# 输出目录先转**绝对路径**：下面要 cd 进 so_dir，相对路径的输出目标会失效
+# （2026-09-21 CI 实锤：`output-mpv/SHA256SUMS: No such file or directory`，
+#   因 cd 后该相对路径指向 output-mpv/output-mpv/）。顺带建目录。
+out_dir="$(mkdir -p "$out_dir" && cd "$out_dir" && pwd)"
 cd "$so_dir"
 ls libmpv-*.so >/dev/null # 无产物直接失败，别发布空 release
 sha256sum libmpv-*.so > "$out_dir/SHA256SUMS"
