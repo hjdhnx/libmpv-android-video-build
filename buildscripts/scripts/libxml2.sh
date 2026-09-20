@@ -42,6 +42,7 @@ cmake .. \
 	-DCMAKE_TOOLCHAIN_FILE="$toolchain" \
 	-DANDROID_ABI="$prefix_name" \
 	-DANDROID_PLATFORM=android-24 \
+	-DCMAKE_INSTALL_PREFIX="$prefix_dir" \
 	-DBUILD_SHARED_LIBS=OFF \
 	-DLIBXML2_WITH_PYTHON=OFF \
 	-DLIBXML2_WITH_LZMA=OFF \
@@ -53,4 +54,14 @@ cmake .. \
 	-DLIBXML2_WITH_PROGRAMS=OFF
 
 make -j$cores
-make DESTDIR="$prefix_dir" install
+make install
+
+# 诊断：确认 .pc 落点与 pkg-config 搜索路径一致（ffmpeg 的 dash 检测走 pkg-config，
+# 路径不匹配就会报 libxml-2.0 not found）
+echo "=== libxml2 安装诊断 ==="
+echo "prefix_dir=$prefix_dir"
+echo "PKG_CONFIG_LIBDIR=$PKG_CONFIG_LIBDIR"
+find "$prefix_dir" -name 'libxml-2.0.pc' 2>/dev/null | sed 's/^/  .pc → /'
+pkg-config --exists libxml-2.0 && echo "  pkg-config: OK" || echo "  pkg-config: NOT FOUND"
+pkg-config --modversion libxml-2.0 2>&1 | sed 's/^/  version: /'
+echo "=== 诊断结束 ==="
