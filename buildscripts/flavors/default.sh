@@ -158,6 +158,7 @@ cpuflags=
 	--enable-demuxer=avi \
 	--enable-demuxer=av1 \
 	--enable-demuxer=matroska \
+	--enable-libxml2 \
 	--enable-demuxer=dash \
 	--enable-demuxer=webm_dash_manifest \
 	--enable-muxer=webp \

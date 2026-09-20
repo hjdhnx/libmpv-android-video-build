@@ -22,6 +22,9 @@ git config --global advice.detachedHead false
 # libx264
 [ ! -d libx264 ] && git clone --depth 1 https://code.videolan.org/videolan/x264.git --branch master libx264
 
+# libxml2（ffmpeg dash demuxer 的硬依赖：dash_demuxer_deps="libxml2"）
+[ ! -d libxml2 ] && git clone --depth 1 --branch v$v_libxml2 https://gitlab.gnome.org/GNOME/libxml2.git libxml2
+
 # ffmpeg
 [ ! -d ffmpeg ] && git clone --depth 1 --branch n$v_ffmpeg https://github.com/FFmpeg/FFmpeg.git ffmpeg
 

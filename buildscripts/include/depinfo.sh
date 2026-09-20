@@ -18,6 +18,7 @@ v_dav1d=1.5.4
 v_ffmpeg=9.0.1
 v_mpv=0.41.0
 v_libvpx=1.16
+v_libxml2=2.13.5
 v_libwebp=1.6.0
 
 
@@ -27,9 +28,9 @@ v_libwebp=1.6.0
 dep_mbedtls=()
 dep_dav1d=()
 if [ -n "$ENCODERS_GPL" ]; then
-	dep_ffmpeg=(mbedtls dav1d libvpx libx264 libwebp)
+	dep_ffmpeg=(mbedtls dav1d libvpx libx264 libwebp libxml2)
 else
-	dep_ffmpeg=(mbedtls dav1d libwebp)
+	dep_ffmpeg=(mbedtls dav1d libwebp libxml2)
 fi
 dep_freetype2=()
 dep_fribidi=()
