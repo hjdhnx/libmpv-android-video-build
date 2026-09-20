@@ -154,3 +154,4 @@ jobs:
             output-mpv/libmpv-*.so
             output-mpv/SHA256SUMS
             output-mpv/MD5SUMS
+            output-mpv/BUILD-INFO.md
