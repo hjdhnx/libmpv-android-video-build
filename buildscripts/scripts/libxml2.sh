@@ -25,8 +25,16 @@ cd $build
 # autotools 链，而 CMakeLists 是上游一等公民、交叉编译更省事）。
 # 关闭非必需部件：Python 绑定 / lzma / zlib / iconv / HTTP / FTP —— DASH 只需
 # XML 解析与 MPD 读入（减体积，也减少交叉编译依赖面）。
-# clang 位于 <ndk>/toolchains/llvm/prebuilt/<host>/bin/clang —— 上溯 4 级到 NDK 根
-ndk_root="$(cd "$(dirname "$(command -v clang)")/../../../.." && pwd)"
+# NDK 根：优先用 ANDROID_HOME/ndk/<版本>（CI 已导出且版本号可知）；
+# 退化用 clang 路径推导（<ndk>/toolchains/llvm/prebuilt/<host>/bin/clang → 上溯 5 级）
+ndk_root=""
+if [ -n "$ANDROID_HOME" ] && [ -d "$ANDROID_HOME/ndk/$v_ndk" ]; then
+	ndk_root="$ANDROID_HOME/ndk/$v_ndk"
+elif [ -n "$ANDROID_NDK_HOME" ] && [ -d "$ANDROID_NDK_HOME" ]; then
+	ndk_root="$ANDROID_NDK_HOME"
+else
+	ndk_root="$(cd "$(dirname "$(command -v clang)")/../../../../.." && pwd)"
+fi
 toolchain="$ndk_root/build/cmake/android.toolchain.cmake"
 [ -f "$toolchain" ] || { echo "找不到 NDK toolchain: $toolchain"; exit 1; }
 
