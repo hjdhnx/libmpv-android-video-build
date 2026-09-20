@@ -45,11 +45,33 @@ jobs:
         run: |
           mkdir sdk
           ln -s ${ANDROID_HOME} ./sdk/android-sdk-linux
-      - name: Bundle (default)
+      # DsPlayer 定制：只编 arm64 + x86_64（插件实际使用的 ABI），
+      # 并只取 libmpv.so（跳过 helper/event_loop 的 Flutter 段，节省一半以上时间）。
+      # 需要完整 jar 时改回 bundle_default.sh 调用。
+      - name: Build libmpv (arm64 + x86_64, 含 libxml2/DASH)
         working-directory: ./buildscripts
         run: |
-          sudo chmod +x bundle_default.sh
-          ./bundle_default.sh
+          set -e
+          ./download.sh
+          ./patch.sh
+          cp flavors/default.sh scripts/ffmpeg.sh
+          grep -n "libxml2" scripts/ffmpeg.sh
+          for arch in arm64 x86_64; do
+            echo "===== 架构: $arch ====="
+            ./build.sh --arch $arch mpv
+          done
+          # 收集产物（prefix/<abi>/lib/libmpv.so）
+          mkdir -p ../output-mpv
+          for abi in arm64-v8a x86_64; do
+            cp -v "prefix/$abi/lib/libmpv.so" "../output-mpv/libmpv-$abi.so"
+          done
+          ls -la ../output-mpv/
+
+      - name: Upload libmpv
+        uses: actions/upload-artifact@v7
+        with:
+          name: libmpv-dash
+          path: ./output-mpv/*.so
       # - name: Bundle (full)
       #   working-directory: ./buildscripts
       #   run: |
