@@ -38,23 +38,69 @@ cd $build
 # （实测 -I<prefix_dir><prefix_dir>/include/libxml2，路径不存在 → ffmpeg 报
 # "libxml-2.0 not found using pkg-config"）。
 #
-# NDK 根：优先用 ANDROID_HOME/ndk/<版本>（CI 已导出且版本号可知）；
-# 退化用 clang 路径推导（<ndk>/toolchains/llvm/prebuilt/<host>/bin/clang → 上溯 5 级）
+# prefix_name 兜底：本脚本以子进程运行（build.sh 用 `$BUILDSCRIPT build` 调用），
+# 只能看到父进程 **export** 的变量。build.sh 历史上没 export prefix_name（本 fork
+# 已补），拿不到就按 ndk_triple 反推——**不能放过空值**：NDK 的 android.toolchain.cmake
+# 在 ANDROID_ABI 为空时默认 armeabi-v7a，会静默编出 ARM32 静态库，
+# 直到 libmpv 链接期才报 "is incompatible with aarch64linux"（2026-09-21 CI 实锤）。
+if [ -z "$prefix_name" ]; then
+	case "$ndk_triple" in
+		aarch64-*) prefix_name=arm64-v8a ;;
+		arm-*)     prefix_name=armeabi-v7a ;;
+		x86_64-*)  prefix_name=x86_64 ;;
+		i686-*)    prefix_name=x86 ;;
+		*) echo "无法从 ndk_triple='$ndk_triple' 推出 Android ABI"; exit 1 ;;
+	esac
+	echo "prefix_name 未导出，按 ndk_triple 推出: $prefix_name"
+fi
+
+# NDK 根定位：按可靠度依次探测
+#   ① $ANDROID_HOME/ndk/$v_ndk（path.sh 的 PATH 也按这个版本拼，最优先）
+#   ② $ANDROID_NDK_HOME（CI runner 常设；path.sh 只 unset 了 _ROOT 系列）
+#   ③ $ANDROID_HOME/ndk/ 下任意版本目录（版本号漂移时的兜底）
+#   ④ 从 clang 路径上溯 5 级（<ndk>/toolchains/llvm/prebuilt/<host>/bin/clang）
 ndk_root=""
 if [ -n "$ANDROID_HOME" ] && [ -d "$ANDROID_HOME/ndk/$v_ndk" ]; then
 	ndk_root="$ANDROID_HOME/ndk/$v_ndk"
 elif [ -n "$ANDROID_NDK_HOME" ] && [ -d "$ANDROID_NDK_HOME" ]; then
 	ndk_root="$ANDROID_NDK_HOME"
-else
+elif [ -n "$ANDROID_HOME" ] && [ -d "$ANDROID_HOME/ndk" ]; then
+	ndk_root="$(ls -d "$ANDROID_HOME"/ndk/*/ 2>/dev/null | sort -V | tail -1)"
+	ndk_root="${ndk_root%/}"
+fi
+if [ -z "$ndk_root" ]; then
 	ndk_root="$(cd "$(dirname "$(command -v clang)")/../../../../.." && pwd)"
 fi
+[ -d "$ndk_root" ] || { echo "找不到 NDK 根: $ndk_root"; exit 1; }
+
+# 诊断：交叉编译是否真的生效，全看这几个值（2026-09-21 CI 实锤：libxml2 被
+# 宿主 clang 编成 x86_64，链接期报 "is incompatible with aarch64linux"，
+# 而日志里没有任何 NDK/Android 痕迹——必须先确认编译器和 toolchain 落点）
+echo "=== libxml2 交叉编译环境诊断 ==="
+echo "  ANDROID_HOME=$ANDROID_HOME"
+echo "  v_ndk=$v_ndk    ndk_root=$ndk_root"
+echo "  CC=$CC"
+echo "  cmake: $(cmake --version 2>&1 | head -1)"
+echo "  ndk 目录: $(ls -d "$ANDROID_HOME"/ndk/*/ 2>/dev/null | tr '\n' ' ')"
+echo "  CC 版本: $($CC --version 2>&1 | head -1)"
+echo "=== 诊断结束 ==="
+
+# cmake 参数：优先 NDK 官方 toolchain 文件；文件不存在（新 NDK 版本可能移除）
+# 则退回 CMake 内置 Android 支持（-DCMAKE_SYSTEM_NAME=Android + NDK 路径）。
+# 两条路都显式钉 C 编译器 = $CC（NDK 的 aarch64-linux-android24-clang wrapper，
+# wrapper 自带 --target 与 --sysroot，是 libwebp/dav1d 等依赖已验证可用的通路）。
 toolchain="$ndk_root/build/cmake/android.toolchain.cmake"
-[ -f "$toolchain" ] || { echo "找不到 NDK toolchain: $toolchain"; exit 1; }
+if [ -f "$toolchain" ]; then
+	echo "使用 NDK toolchain 文件: $toolchain"
+	cmake_args=(-DCMAKE_TOOLCHAIN_FILE="$toolchain" -DANDROID_ABI="$prefix_name" -DANDROID_PLATFORM=android-24)
+else
+	echo "NDK toolchain 文件不存在，改用 CMake 内置 Android 支持"
+	cmake_args=(-DCMAKE_SYSTEM_NAME=Android -DCMAKE_SYSTEM_VERSION=24
+		-DCMAKE_ANDROID_ARCH_ABI="$prefix_name" -DCMAKE_ANDROID_NDK="$ndk_root")
+fi
 
 cmake .. \
-	-DCMAKE_TOOLCHAIN_FILE="$toolchain" \
-	-DANDROID_ABI="$prefix_name" \
-	-DANDROID_PLATFORM=android-24 \
+	"${cmake_args[@]}" \
 	-DBUILD_SHARED_LIBS=OFF \
 	-DLIBXML2_WITH_PYTHON=OFF \
 	-DLIBXML2_WITH_LZMA=OFF \
@@ -67,6 +113,14 @@ cmake .. \
 
 make -j$cores
 make DESTDIR="$prefix_dir" install
+
+# 决定性事实：CMake 究竟选了哪个编译器 / 认为是哪个系统（唯一事实源是缓存）
+cache="CMakeCache.txt"
+echo "===== CMake 实际选择 ====="
+for k in CMAKE_C_COMPILER CMAKE_SYSTEM_NAME CMAKE_ANDROID_ARCH_ABI CMAKE_TOOLCHAIN_FILE; do
+	grep -E "^${k}(:FILEPATH)?=" "$cache" 2>/dev/null | sed 's/^/  /' || echo "  $k: (未设置)"
+done
+echo "=========================="
 
 # .pc 的 Cflags 补一条 -I${includedir}：libxml2 官方 .pc 的布局约定是
 # `#include <libxml/parser.h>` + `-I${includedir}/libxml2`，而 ffmpeg 的
@@ -87,6 +141,16 @@ echo "PKG_CONFIG_LIBDIR=$PKG_CONFIG_LIBDIR"
 find "$prefix_dir" -name 'libxml-2.0.pc' 2>/dev/null | sed 's/^/  .pc → /'
 ls -la "$prefix_dir/include/libxml2/libxml/xmlversion.h" 2>/dev/null | sed 's/^/  header → /' || echo "  header → MISSING"
 ls -la "$prefix_dir/lib/libxml2.a" 2>/dev/null | sed 's/^/  lib → /' || echo "  lib → MISSING"
+# 架构探测：`file` 对 .a 只报 "current ar archive"（无架构信息），抽一个成员看
+# ELF 头才有效——静态库必须是目标 ABI（ARM aarch64 / x86-64），混错架构会在
+# 后面 ffmpeg/libmpv 链接期才炸，报 "is incompatible with aarch64linux"。
+ar_member=$("$AR" t "$prefix_dir/lib/libxml2.a" 2>/dev/null | head -1)
+if [ -n "$ar_member" ]; then
+	probe_dir=$(mktemp -d)
+	(cd "$probe_dir" && "$AR" x "$prefix_dir/lib/libxml2.a" "$ar_member" 2>/dev/null)
+	echo "  静态库架构: $(file -b "$probe_dir/$ar_member" 2>&1)"
+	rm -rf "$probe_dir"
+fi
 pkg-config --exists libxml-2.0 && echo "  pkg-config: OK" || echo "  pkg-config: NOT FOUND"
 pkg-config --modversion libxml-2.0 2>&1 | sed 's/^/  version: /'
 echo "  cflags: $(pkg-config --cflags libxml-2.0 2>&1)"
