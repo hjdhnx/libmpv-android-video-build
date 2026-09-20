@@ -19,21 +19,30 @@ $0 clean # separate building not supported, always clean
 mkdir -p $build
 cd $build
 
-# libxml2 静态库（供 ffmpeg 的 dash demuxer 使用：dash_demuxer_deps="libxml2"）。
-# 交叉编译要点：autotools + NDK toolchain；禁用 Python/ICU/HTTP/zlib 等非必需
-# 部件（DASH 只需 XML 解析与 MPD 读入）。
-../configure \
-	--host=$ndk_triple \
-	--prefix=$prefix_dir \
-	--enable-static \
-	--disable-shared \
-	--without-python \
-	--without-lzma \
-	--without-zlib \
-	--without-iconv \
-	--without-http \
-	--without-ftp \
-	--disable-dependency-tracking
+# libxml2 静态库（ffmpeg dash demuxer 的硬依赖：dash_demuxer_deps="libxml2"）。
+#
+# 用 NDK 官方 CMake toolchain（git 源码无现成 configure；autogen 需完整
+# autotools 链，而 CMakeLists 是上游一等公民、交叉编译更省事）。
+# 关闭非必需部件：Python 绑定 / lzma / zlib / iconv / HTTP / FTP —— DASH 只需
+# XML 解析与 MPD 读入（减体积，也减少交叉编译依赖面）。
+ndk_root="$(dirname "$(dirname "$(command -v clang)")")"
+toolchain="$ndk_root/build/cmake/android.toolchain.cmake"
+[ -f "$toolchain" ] || { echo "找不到 NDK toolchain: $toolchain"; exit 1; }
+
+cmake .. \
+	-DCMAKE_TOOLCHAIN_FILE="$toolchain" \
+	-DANDROID_ABI="$prefix_name" \
+	-DANDROID_PLATFORM=android-24 \
+	-DCMAKE_INSTALL_PREFIX="$prefix_dir" \
+	-DBUILD_SHARED_LIBS=OFF \
+	-DLIBXML2_WITH_PYTHON=OFF \
+	-DLIBXML2_WITH_LZMA=OFF \
+	-DLIBXML2_WITH_ZLIB=OFF \
+	-DLIBXML2_WITH_ICONV=OFF \
+	-DLIBXML2_WITH_HTTP=OFF \
+	-DLIBXML2_WITH_FTP=OFF \
+	-DLIBXML2_WITH_TESTS=OFF \
+	-DLIBXML2_WITH_PROGRAMS=OFF
 
 make -j$cores
-make install
+make DESTDIR="$prefix_dir" install
