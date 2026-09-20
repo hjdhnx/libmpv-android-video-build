@@ -4,15 +4,20 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
+      arches:
+        description: '要构建的架构（空格分隔：armv7l arm64 x86 x86_64）'
+        required: false
+        default: 'armv7l arm64 x86 x86_64'
+        type: string
       release:
-        description: 'Create a draft release of the build'
+        description: '构建完成后创建 Release 并发布 .so（勾选即发布）'
         required: false
         default: false
         type: boolean
-      logLevel:
-        description: 'Log level'
-        required: true
-        default: 'warning'
+      releaseTag:
+        description: 'Release tag（留空 = build-<日期>-<短提交>）'
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -45,20 +50,39 @@ jobs:
         run: |
           mkdir sdk
           ln -s ${ANDROID_HOME} ./sdk/android-sdk-linux
-      # DsPlayer 定制：只编 arm64 + x86_64（插件实际使用的 ABI），
-      # 并只取 libmpv.so（跳过 helper/event_loop 的 Flutter 段，节省一半以上时间）。
+      # DsPlayer 定制：逐架构构建 libmpv.so（含 libxml2/DASH），跳过 helper/event_loop
+      # 的 Flutter 段（节省一半以上时间）。架构名用 build.sh 的口径
+      # （armv7l/arm64/x86/x86_64），产物按 Android ABI 名命名
+      # （armeabi-v7a/arm64-v8a/x86/x86_64），可直接落 plugin_mpv 的 jniLibs/<abi>/。
       # 需要完整 jar 时改回 bundle_default.sh 调用。
-      - name: Build libmpv (arm64 + x86_64, 含 libxml2/DASH)
+      - name: Build libmpv (libxml2/DASH)
         working-directory: ./buildscripts
+        env:
+          # 经 env 传入而非直接插值进脚本：输入值不参与 shell 解析
+          ARCHES_INPUT: ${{ github.event.inputs.arches }}
         run: |
           set -e
+          ARCHES="$ARCHES_INPUT"
+          [ -n "$ARCHES" ] || ARCHES="armv7l arm64 x86 x86_64"
+          echo "构建架构：$ARCHES"
           ./download.sh
           ./patch.sh
           cp flavors/default.sh scripts/ffmpeg.sh
           grep -n "libxml2" scripts/ffmpeg.sh
-          for arch in arm64 x86_64; do
-            echo "===== 架构: $arch ====="
-            abi=$([ "$arch" = arm64 ] && echo arm64-v8a || echo x86_64)
+          abi_of() {
+            case "$1" in
+              armv7l) echo armeabi-v7a ;;
+              arm64)  echo arm64-v8a ;;
+              x86)    echo x86 ;;
+              x86_64) echo x86_64 ;;
+              *) echo "未知架构: $1" >&2; return 1 ;;
+            esac
+          }
+          mkdir -p ../output-mpv
+          for arch in $ARCHES; do
+            abi=$(abi_of "$arch")
+            echo "===== 架构: $arch（ABI $abi）====="
+            rm -rf "prefix/$abi"
             if ! ./build.sh --arch $arch mpv; then
               echo "===== 构建失败，dump 诊断 ====="
               echo "--- libxml-2.0.pc 内容 ---"
@@ -73,41 +97,60 @@ jobs:
               done
               exit 1
             fi
-          done
-          # 收集产物（prefix/<abi>/lib/libmpv.so）
-          mkdir -p ../output-mpv
-          for abi in arm64-v8a x86_64; do
             cp -v "prefix/$abi/lib/libmpv.so" "../output-mpv/libmpv-$abi.so"
+          done
+          echo "===== 产物校验（架构 + dash demuxer + 动态依赖）====="
+          # 工具从 NDK 定位（path.sh 的 toolchain 推导同源：buildscripts/sdk/
+          # android-sdk-linux 软链到 ANDROID_HOME）；workflow 的 shell 没有 NDK bin，
+          # 不能直接裸调 llvm-nm。
+          ( . ./include/depinfo.sh
+            echo "$PWD/sdk/android-sdk-linux/ndk/$v_ndk/toolchains/llvm/prebuilt/linux-x86_64/bin" \
+              > /tmp/toolbin )
+          TOOLBIN=$(cat /tmp/toolbin)
+          NM="$TOOLBIN/llvm-nm"
+          READELF="$TOOLBIN/llvm-readelf"
+          [ -x "$NM" ] || { echo "找不到 llvm-nm: $NM"; ls -la "$TOOLBIN" | head; exit 1; }
+          [ -x "$READELF" ] || { echo "找不到 llvm-readelf: $READELF"; exit 1; }
+          for f in ../output-mpv/libmpv-*.so; do
+            echo "--- $f"
+            "$READELF" -h "$f" | grep -E 'Machine|Class' | sed 's/^/    /'
+            echo "    ff_dash_demuxer: $("$NM" --dynamic --defined-only "$f" | grep -c ff_dash_demuxer)"
+            echo "    demuxer 总数: $("$NM" --dynamic --defined-only "$f" | grep -oE 'ff_[a-z0-9_]+_demuxer' | sort -u | wc -l)"
+            "$READELF" -d "$f" | grep NEEDED | sed 's/.*\[/    NEEDED /;s/\]//'
           done
           ls -la ../output-mpv/
 
       - name: Upload libmpv
         uses: actions/upload-artifact@v7
         with:
-          name: libmpv-dash
+          name: libmpv-so
           path: ./output-mpv/*.so
-      # - name: Bundle (full)
-      #   working-directory: ./buildscripts
-      #   run: |
-      #     sudo chmod +x bundle_full.sh
-      #     ./bundle_full.sh
-      # - name: Bundle (encoders-gpl)
-      #   working-directory: ./buildscripts
-      #   run: |
-      #     sudo chmod +x bundle_encoders-gpl.sh
-      #     ./bundle_encoders-gpl.sh
-      - uses: actions/upload-artifact@v7
-        with:
-          name: artifact
-          path: ./output/*.jar
+
+      # Release 发布：.so + 校验和 + 构建信息（版本锚点用 buildscripts 的
+      # depinfo.sh 读，可复核）。勾选 release 输入才执行。
+      - name: Prepare release assets
+        if: ${{ github.event.inputs.release == 'true' }}
+        run: |
+          chmod +x buildscripts/make_release_assets.sh
+          ./buildscripts/make_release_assets.sh output-mpv
 
       - name: Set Tag Name
         if: ${{ github.event.inputs.release == 'true' }}
-        run: echo "TAG_NAME=$(date +'%Y%m%d')" >> $GITHUB_ENV
+        env:
+          TAG_INPUT: ${{ github.event.inputs.releaseTag }}
+        run: |
+          TAG="$TAG_INPUT"
+          [ -n "$TAG" ] || TAG="build-$(date -u +%Y%m%d)-$(git rev-parse --short HEAD)"
+          echo "TAG_NAME=$TAG" >> $GITHUB_ENV
 
       - uses: softprops/action-gh-release@v3
         if: ${{ github.event.inputs.release == 'true' }}
         with:
           tag_name: ${{ env.TAG_NAME }}
+          name: ${{ env.TAG_NAME }}
+          body_path: ./output-mpv/BUILD-INFO.md
+          make_latest: "true"
           files: |
-            output/*.jar
+            output-mpv/libmpv-*.so
+            output-mpv/SHA256SUMS
+            output-mpv/MD5SUMS
