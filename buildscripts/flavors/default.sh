@@ -283,6 +283,12 @@ ln -sf "$prefix_dir"/lib/libavdevice.so "$native_dir"
 # libavformat 编 probe（含打补丁的 mov.c），native 运行验证 bv2C 子 box
 # -> codec id 切换的实际行为；arm64 的 linker/解码层由真机验收覆盖 ----
 if [[ "$ndk_triple" == "x86_64"* ]] && [ -f "$BVC2_DIR/bvc2_plain.mp4" ]; then
-	gcc -O1 "$BVC2_DIR/probe.c" -o /tmp/bvc2probe 		$(PKG_CONFIG_LIBDIR="$prefix_dir/lib/pkgconfig" pkg-config --static --cflags --libs libavformat libavcodec) 		-lm -lpthread -lz || echo "PROBE 编译失败（继续构建不阻断）"
+	# .pc 的 Libs 含 Android 专属库（-landroid/-lmediandk，configure --enable-jni
+	# 引入），native Linux 无此库——生成空 stub 归档仅满足 -l 引用（探针代码
+	# 不引 Android 符号，静态按需拉 .o 不会真用到）
+	mkdir -p /tmp/bvc2stub && cd /tmp/bvc2stub
+	for lib in android mediandk OpenSLES EGL; do ar rcs lib$lib.a 2>/dev/null; done
+	cd - >/dev/null
+	gcc -O1 "$BVC2_DIR/probe.c" -o /tmp/bvc2probe 		$(PKG_CONFIG_LIBDIR="$prefix_dir/lib/pkgconfig" pkg-config --static --cflags --libs libavformat libavcodec) 		-L/tmp/bvc2stub -lm -lpthread -lz || echo "PROBE 编译失败（继续构建不阻断）"
 	[ -x /tmp/bvc2probe ] && /tmp/bvc2probe "$BVC2_DIR/bvc2_plain.mp4" || echo "PROBE 运行失败"
 fi
