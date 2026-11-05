@@ -23,10 +23,21 @@ cpu=armv7-a
 cpuflags=
 [[ "$ndk_triple" == "arm"* ]] && cpuflags="$cpuflags -mfpu=neon -mcpu=cortex-a8"
 
+# ---- ByteVC2 (B 站 bv2C 私有编码) 软解接入，仅 arm64（libbyteVC2dec.so 仅
+# arm64 版；其它架构缺库 configure 必挂）。flavor 会被 cp 成 scripts/ffmpeg.sh
+# 在 deps/ffmpeg 的 _build* 里执行，ffmpeg 树 = ../；补丁脚本幂等。----
+BVC2_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../bytevc2" && pwd)"
+BVC2_FLAGS=
+if [[ "$ndk_triple" == "aarch64"* ]] && [ -f "$BVC2_DIR/libbyteVC2dec.so" ]; then
+	python3 "$BVC2_DIR/apply.py" ..
+	BVC2_LDFLAG="-L$BVC2_DIR"
+	BVC2_FLAGS="--enable-decoder=bytevc2 --extra-libs=-lbyteVC2dec"
+fi
+
 ../configure \
 	--target-os=android --enable-cross-compile --cross-prefix=$ndk_triple- --ar=$AR --cc=$CC --ranlib=$RANLIB \
 	--arch=${ndk_triple%%-*} --cpu=$cpu --pkg-config=pkg-config --nm=llvm-nm \
-	--extra-cflags="-I$prefix_dir/include $cpuflags" --extra-ldflags="-L$prefix_dir/lib" \
+	--extra-cflags="-I$prefix_dir/include $cpuflags" --extra-ldflags="-L$prefix_dir/lib $BVC2_LDFLAG" \
 	\
 	--disable-gpl \
 	--disable-nonfree \
@@ -249,6 +260,7 @@ cpuflags=
 	--enable-encoder=libwebp_anim \
 	\
 	--enable-network \
+	$BVC2_FLAGS \
 
 make -j$cores
 make DESTDIR="$prefix_dir" install
