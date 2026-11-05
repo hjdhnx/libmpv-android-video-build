@@ -124,7 +124,7 @@ jobs:
           # 直接跑）：NDK clang + arm64 prefix 静态库 + 解码库，输出 PROBE 行
           # 判定 mov.c bv2C 切换与 desc 查询在真机环境的实际行为 ----
           echo "===== ByteVC2 探针编译（arm64）====="
-          "$TOOLBIN/aarch64-linux-android24-clang" -O1 bytevc2/probe.c             -o ../output-mpv/probe-arm64             -I"prefix/arm64-v8a/include" -L"prefix/arm64-v8a/lib"             -lavformat -lavcodec -lavutil -Lbytevc2 -lbyteVC2dec -lm -lz             || echo "探针编译失败（不阻断）"
+          "$TOOLBIN/aarch64-linux-android24-clang" -O1 bytevc2/probe.c             -o ../output-mpv/probe-arm64             -I"prefix/arm64-v8a/include" -L"prefix/arm64-v8a/lib"             -lavformat -lavcodec -lavutil -Lbytevc2 -lbyteVC2dec -lm -lz             -landroid -lmediandk -llog             || echo "探针编译失败（不阻断）"
           ls -la ../output-mpv/
 
       - name: Upload libmpv
