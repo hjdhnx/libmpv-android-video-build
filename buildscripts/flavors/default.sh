@@ -27,11 +27,15 @@ cpuflags=
 # arm64 版；其它架构缺库 configure 必挂）。flavor 会被 cp 成 scripts/ffmpeg.sh
 # 在 deps/ffmpeg/_build 里执行——cwd 已变，定位必须用 path.sh 的绝对路径
 # $DIR（= buildscripts），勿用 BASH_SOURCE 相对路径（CI 实锤 cd 失败）。
-# ffmpeg 树 = ../（_build 的父目录）；补丁脚本幂等。----
+# ffmpeg 树 = ../（_build 的父目录）；补丁脚本幂等。
+# 源码补丁（mov.c bv2C 切换等）**全架构应用**（幂等无害）——x86_64 prefix
+# 的 libavformat 也含切换逻辑，供下方 demuxer 探针验证；解码器 enable/链接
+# 仅 arm64。----
 BVC2_DIR="$DIR/bytevc2"
 BVC2_FLAGS=
+BVC2_LDFLAG=
+python3 "$BVC2_DIR/apply.py" ..
 if [[ "$ndk_triple" == "aarch64"* ]] && [ -f "$BVC2_DIR/libbyteVC2dec.so" ]; then
-	python3 "$BVC2_DIR/apply.py" ..
 	BVC2_LDFLAG="-L$BVC2_DIR"
 	BVC2_FLAGS="--enable-decoder=bytevc2 --extra-libs=-lbyteVC2dec"
 fi
@@ -274,3 +278,11 @@ ln -sf "$prefix_dir"/lib/libavformat.so "$native_dir"
 ln -sf "$prefix_dir"/lib/libswscale.so "$native_dir"
 ln -sf "$prefix_dir"/lib/libavfilter.so "$native_dir"
 ln -sf "$prefix_dir"/lib/libavdevice.so "$native_dir"
+
+# ---- ByteVC2 demuxer 探针（仅 x86_64 轮）：用本架构 prefix 的静态
+# libavformat 编 probe（含打补丁的 mov.c），native 运行验证 bv2C 子 box
+# -> codec id 切换的实际行为；arm64 的 linker/解码层由真机验收覆盖 ----
+if [[ "$ndk_triple" == "x86_64"* ]] && [ -f "$BVC2_DIR/bvc2_plain.mp4" ]; then
+	gcc -O1 "$BVC2_DIR/probe.c" -o /tmp/bvc2probe 		$(PKG_CONFIG_LIBDIR="$prefix_dir/lib/pkgconfig" pkg-config --static --cflags --libs libavformat libavcodec) 		-lm -lpthread -lz || echo "PROBE 编译失败（继续构建不阻断）"
+	[ -x /tmp/bvc2probe ] && /tmp/bvc2probe "$BVC2_DIR/bvc2_plain.mp4" || echo "PROBE 运行失败"
+fi
