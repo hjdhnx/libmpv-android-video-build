@@ -25,8 +25,10 @@ cpuflags=
 
 # ---- ByteVC2 (B 站 bv2C 私有编码) 软解接入，仅 arm64（libbyteVC2dec.so 仅
 # arm64 版；其它架构缺库 configure 必挂）。flavor 会被 cp 成 scripts/ffmpeg.sh
-# 在 deps/ffmpeg 的 _build* 里执行，ffmpeg 树 = ../；补丁脚本幂等。----
-BVC2_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../bytevc2" && pwd)"
+# 在 deps/ffmpeg/_build 里执行——cwd 已变，定位必须用 path.sh 的绝对路径
+# $DIR（= buildscripts），勿用 BASH_SOURCE 相对路径（CI 实锤 cd 失败）。
+# ffmpeg 树 = ../（_build 的父目录）；补丁脚本幂等。----
+BVC2_DIR="$DIR/bytevc2"
 BVC2_FLAGS=
 if [[ "$ndk_triple" == "aarch64"* ]] && [ -f "$BVC2_DIR/libbyteVC2dec.so" ]; then
 	python3 "$BVC2_DIR/apply.py" ..
