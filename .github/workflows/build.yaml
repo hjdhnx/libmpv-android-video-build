@@ -120,8 +120,6 @@ jobs:
           done
           ls -la ../output-mpv/
 
-          exit 0"
-          ls -la ../output-mpv/
 
       - name: Upload libmpv
         uses: actions/upload-artifact@v7
