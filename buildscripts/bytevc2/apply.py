@@ -68,16 +68,24 @@ def apply(tree):
         print(f"  [ok]   libavcodec/{fn}")
 
     # ---- 2. codec_id.h ----
+    # ⚠️ 显式取 WRAPPED_AVFRAME(0x21001) 之后的私有段大值: FFmpeg >= 7 的
+    # avcodec_descriptor_get 用 bsearch 按 id 升序查 codec_desc 表, 插表尾
+    # 的条目必须是大值 (若取 FIRST_AUDIO 前的连续小值 274, 表尾插入即破坏
+    # 排序, mpv 按 desc 查 codec 名必失败而 fallback, CI 真机实锤)
     p = os.path.join(dst_dir, "codec_id.h")
     t = read(p)
     t = insert_before(
         t, r"^\s*AV_CODEC_ID_FIRST_AUDIO\b",
-        "    AV_CODEC_ID_BYTEVC2,\n"
-        "    /* 视频段末尾追加, 私有解码器 (mp4 fourcc 'bv2C') */\n",
+        "    AV_CODEC_ID_BYTEVC2 = 0x21004,\n"
+        "    /* 私有解码器 (mp4 fourcc 'bv2C'), WRAPPED_AVFRAME(0x21001) 之后\n"
+        "     * 的私有空位: desc 表按 id 升序 + bsearch, 见 codec_desc.c 插位 */\n",
         "codec_id.h: AV_CODEC_ID_BYTEVC2")
     write(p, t)
 
     # ---- 3. codec_desc.c ----
+    # 插表尾 }; 前: BYTEVC2 = 0x21002 (见 codec_id.h) > 表尾最大条目
+    # WRAPPED_AVFRAME(0x21001), 升序保持, 9.0 的 bsearch 可查。
+    # 幂等: bytevc2 名字已存在即跳过 (insert_before 内部也兜一层)。
     p = os.path.join(dst_dir, "codec_desc.c")
     t = read(p)
     desc = ("    {\n"
@@ -88,7 +96,7 @@ def apply(tree):
             "        .props     = AV_CODEC_PROP_LOSSY,\n"
             "    },\n")
     t = insert_before(t, r"^\};", desc,
-                      "codec_desc.c: bytevc2 条目")
+                      "codec_desc.c: bytevc2 条目(表尾, 0x21004 排序正确)")
     write(p, t)
 
     # ---- 4. allcodecs.c: 仅 extern 声明 (codec_list/DECODER_LIST 自动生成) ----
