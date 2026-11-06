@@ -120,17 +120,6 @@ jobs:
           done
           ls -la ../output-mpv/
 
-          # ---- ByteVC2 demuxer/desc 探针（arm64 可执行，真机 /data/local/tmp
-          # 直接跑）：NDK clang + arm64 prefix 静态库 + 解码库，输出 PROBE 行
-          # 判定 mov.c bv2C 切换与 desc 查询在真机环境的实际行为 ----
-          echo "===== ByteVC2 探针编译（arm64）====="
-          set +e
-          PLA="$PWD/prefix/arm64-v8a"
-          echo "--- 依赖 .a 清单:"
-          ls "$PLA/lib/" | grep '\.a$'
-          ("$TOOLBIN/aarch64-linux-android24-clang" -O1 bytevc2/probe.c -o ../output-mpv/probe-arm64             -I"$PLA/include" -I"$PLA/usr/local/include" -L"$PLA/lib"             -lavformat -lavcodec -lswresample -lavutil             "$PLA/lib/libdav1d.a" "$PLA/lib/libwebp.a" "$PLA/lib/libwebpmux.a"             "$PLA/lib/libwebpdemux.a" "$PLA/lib/libsharpyuv.a"             "$PLA/lib/libxml2.a" "$PLA/lib/libmbedtls.a" "$PLA/lib/libmbedx509.a"             "$PLA/lib/libmbedcrypto.a"             -lz -lm -landroid -lmediandk -llog             -Lbytevc2 -lbyteVC2dec) ||           ("$TOOLBIN/aarch64-linux-android24-clang" -O1 bytevc2/probe.c -o ../output-mpv/probe-arm64             -I"$PLA/include" -I"$PLA/usr/local/include" -L"$PLA/lib"             -lavformat -lavcodec -lswresample -lavutil             -ldav1d -lwebp -lwebpmux -lwebpdemux -lmbedtls -lmbedx509 -lmbedcrypto -lxml2             -lz -lm -landroid -lmediandk -llog -Lbytevc2 -lbyteVC2dec) ||           echo "探针编译失败（不阻断）"
-          ls -la ../output-mpv/
-          set -e
           exit 0"
           ls -la ../output-mpv/
 
