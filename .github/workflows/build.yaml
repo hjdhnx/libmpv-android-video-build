@@ -124,7 +124,13 @@ jobs:
           # 直接跑）：NDK clang + arm64 prefix 静态库 + 解码库，输出 PROBE 行
           # 判定 mov.c bv2C 切换与 desc 查询在真机环境的实际行为 ----
           echo "===== ByteVC2 探针编译（arm64）====="
-          PKG_CONFIG_LIBDIR="$PWD/prefix/arm64-v8a/lib/pkgconfig"           "$TOOLBIN/aarch64-linux-android24-clang" -O1 bytevc2/probe.c -o ../output-mpv/probe-arm64             -I"$PWD/prefix/arm64-v8a/include" -I"$PWD/prefix/arm64-v8a/usr/local/include"             -L"$PWD/prefix/arm64-v8a/lib"             $(pkg-config --static --libs libavformat libavcodec)             -Lbytevc2 -lbyteVC2dec             || echo "探针编译失败（不阻断）"
+          # pc 可能落 lib/pkgconfig 或 usr/local/lib/pkgconfig（DESTDIR+软链），
+          # 双路径探查 + 手动堆依赖 fallback，谁成跑谁
+          echo "--- pc 探查:"; ls "$PWD/prefix/arm64-v8a/lib/pkgconfig" 2>/dev/null | head -3
+          ls "$PWD/prefix/arm64-v8a/usr/local/lib/pkgconfig" 2>/dev/null | head -3
+          PROBE_INC="-I$PWD/prefix/arm64-v8a/include -I$PWD/prefix/arm64-v8a/usr/local/include"
+          PROBE_LIB="-L$PWD/prefix/arm64-v8a/lib -L$PWD/prefix/arm64-v8a/usr/local/lib"
+          ("$TOOLBIN/aarch64-linux-android24-clang" -O1 bytevc2/probe.c -o ../output-mpv/probe-arm64             $PROBE_INC $PROBE_LIB             $(PKG_CONFIG_LIBDIR="$PWD/prefix/arm64-v8a/lib/pkgconfig" pkg-config --static --libs libavformat libavcodec 2>/dev/null)             -Lbytevc2 -lbyteVC2dec) ||           ("$TOOLBIN/aarch64-linux-android24-clang" -O1 bytevc2/probe.c -o ../output-mpv/probe-arm64             $PROBE_INC $PROBE_LIB             -lavformat -lavcodec -lswresample -lavutil             -ldav1d -lwebp -lwebpmux -lwebpdemux -lmbedtls -lmbedx509 -lmbedcrypto -lxml2             -lz -lm -lpthread -landroid -lmediandk -llog -Lbytevc2 -lbyteVC2dec) ||           echo "探针编译失败（不阻断）"
           ls -la ../output-mpv/
 
       - name: Upload libmpv
