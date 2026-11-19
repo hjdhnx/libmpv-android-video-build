@@ -46,6 +46,9 @@ md5sum *.so > "$out_dir/MD5SUMS"
 	echo '含 `ff_dash_demuxer`（DASH/MPD 原生播放，依赖静态链接的 libxml2）——'
 	echo '上游 libmpv 构建未编 libxml2 时该 demuxer 会被 ffmpeg 静默跳过。'
 	echo
+	echo '含 PGS 图形字幕解码（`ff_pgssub_decoder`，2026-11-19 起编入）——'
+	echo '蓝光原盘 hdmv_pgs_subtitle 字幕轨出字；此前构建 MPV 下无 PGS。'
+	echo
 	echo '校验：`SHA256SUMS` / `MD5SUMS`（DsPlayer 插件市场用 md5 校验包）。'
 } > "$out_dir/BUILD-INFO.md"
 
