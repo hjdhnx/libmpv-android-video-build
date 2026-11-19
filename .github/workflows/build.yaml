@@ -99,7 +99,10 @@ jobs:
             fi
             cp -v "prefix/$abi/lib/libmpv.so" "../output-mpv/libmpv-$abi.so"
           done
-          echo "===== 产物校验（架构 + dash demuxer + 动态依赖）====="
+          # bv2C 解码库随包发布（libmpv.so 动态依赖它，缺了 bv2C 播不了；
+          # 只有 arm64 版，见 flavors/default.sh 的 BVC2 段）
+          cp -v bytevc2/libbyteVC2dec.so ../output-mpv/libbyteVC2dec-arm64-v8a.so
+          echo "===== 产物校验（架构 + dash demuxer + pgssub 解码器 + 动态依赖）====="
           # 工具从 NDK 定位（path.sh 的 toolchain 推导同源：buildscripts/sdk/
           # android-sdk-linux 软链到 ANDROID_HOME）；workflow 的 shell 没有 NDK bin，
           # 不能直接裸调 llvm-nm。
@@ -115,6 +118,7 @@ jobs:
             echo "--- $f"
             "$READELF" -h "$f" | grep -E 'Machine|Class' | sed 's/^/    /'
             echo "    ff_dash_demuxer: $("$NM" --dynamic --defined-only "$f" | grep -c ff_dash_demuxer)"
+            echo "    ff_pgssub_decoder: $("$NM" --dynamic --defined-only "$f" | grep -c ff_pgssub_decoder)"
             echo "    demuxer 总数: $("$NM" --dynamic --defined-only "$f" | grep -oE 'ff_[a-z0-9_]+_demuxer' | sort -u | wc -l)"
             "$READELF" -d "$f" | grep NEEDED | sed 's/.*\[/    NEEDED /;s/\]//'
           done
@@ -152,7 +156,7 @@ jobs:
           body_path: ./output-mpv/BUILD-INFO.md
           make_latest: "true"
           files: |
-            output-mpv/libmpv-*.so
+            output-mpv/*.so
             output-mpv/SHA256SUMS
             output-mpv/MD5SUMS
             output-mpv/BUILD-INFO.md

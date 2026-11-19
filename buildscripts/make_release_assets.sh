@@ -16,8 +16,8 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 out_dir="$(mkdir -p "$out_dir" && cd "$out_dir" && pwd)"
 cd "$so_dir"
 ls libmpv-*.so >/dev/null # 无产物直接失败，别发布空 release
-sha256sum libmpv-*.so > "$out_dir/SHA256SUMS"
-md5sum libmpv-*.so > "$out_dir/MD5SUMS"
+sha256sum *.so > "$out_dir/SHA256SUMS"
+md5sum *.so > "$out_dir/MD5SUMS"
 
 {
 	echo "# libmpv Android 构建（DsPlayer 定制）"
@@ -29,7 +29,7 @@ md5sum libmpv-*.so > "$out_dir/MD5SUMS"
 	echo
 	echo "## 产物"
 	echo
-	for f in libmpv-*.so; do
+	for f in *.so; do
 		printf -- '- `%s`（%s，sha256 %s…）\n' \
 			"$f" "$(du -h "$f" | cut -f1)" "$(sha256sum "$f" | cut -c1-16)"
 	done
@@ -38,6 +38,10 @@ md5sum libmpv-*.so > "$out_dir/MD5SUMS"
 	echo
 	echo 'DsPlayer「MPV 内核插件」的 jniLibs 载体：`libmpv-<abi>.so` →'
 	echo '`plugin_mpv/app/src/main/jniLibs/<abi>/libmpv.so`。'
+	echo
+	echo 'bv2C（B 站私有编码软解）依赖 `libbyteVC2dec-arm64-v8a.so`：与'
+	echo '`libmpv-arm64-v8a.so` 同目录放置（重命名为 `libbyteVC2dec.so`），'
+	echo '缺文件则 bv2C 流无法起播。'
 	echo
 	echo '含 `ff_dash_demuxer`（DASH/MPD 原生播放，依赖静态链接的 libxml2）——'
 	echo '上游 libmpv 构建未编 libxml2 时该 demuxer 会被 ffmpeg 静默跳过。'
