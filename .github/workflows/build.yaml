@@ -28,7 +28,10 @@ env:
 jobs:
   build:
     name: Build
-    runs-on: ubuntu-22.04
+    # ubuntu-22.04 托管镜像已退役（2026-09-17 起退役流程，钉旧 label 的 job
+    # 永远 queued 无人认领，2026-11-19 实锤）——脚本自备 SDK/NDK/依赖，镜像
+    # 只提供基础工具链，用当前 LTS 即可
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
